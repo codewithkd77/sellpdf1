@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- ─────────────────────────────────────────────
 -- 2. PDF PRODUCTS
@@ -43,8 +43,8 @@ CREATE TABLE IF NOT EXISTS pdf_products (
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_pdf_products_seller ON pdf_products(seller_id);
-CREATE UNIQUE INDEX idx_pdf_products_short_code ON pdf_products(short_code);
+CREATE INDEX IF NOT EXISTS idx_pdf_products_seller ON pdf_products(seller_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pdf_products_short_code ON pdf_products(short_code);
 
 -- ─────────────────────────────────────────────
 -- 3. PURCHASES
@@ -65,9 +65,9 @@ CREATE TABLE IF NOT EXISTS purchases (
     CONSTRAINT uq_buyer_product UNIQUE (buyer_id, product_id)
 );
 
-CREATE INDEX idx_purchases_buyer   ON purchases(buyer_id);
-CREATE INDEX idx_purchases_product ON purchases(product_id);
-CREATE INDEX idx_purchases_order   ON purchases(razorpay_order_id);
+CREATE INDEX IF NOT EXISTS idx_purchases_buyer   ON purchases(buyer_id);
+CREATE INDEX IF NOT EXISTS idx_purchases_product ON purchases(product_id);
+CREATE INDEX IF NOT EXISTS idx_purchases_order   ON purchases(razorpay_order_id);
 
 -- ─────────────────────────────────────────────
 -- 4. EARNINGS (commission ledger)
@@ -82,5 +82,5 @@ CREATE TABLE IF NOT EXISTS earnings (
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_earnings_seller   ON earnings(seller_id);
-CREATE INDEX idx_earnings_purchase ON earnings(purchase_id);
+CREATE INDEX IF NOT EXISTS idx_earnings_seller   ON earnings(seller_id);
+CREATE INDEX IF NOT EXISTS idx_earnings_purchase ON earnings(purchase_id);
