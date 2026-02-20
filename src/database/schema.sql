@@ -84,3 +84,16 @@ CREATE TABLE IF NOT EXISTS earnings (
 
 CREATE INDEX IF NOT EXISTS idx_earnings_seller   ON earnings(seller_id);
 CREATE INDEX IF NOT EXISTS idx_earnings_purchase ON earnings(purchase_id);
+
+-- —————————————————————————————————————————————————————————————
+-- 5. PENDING REGISTRATIONS (OTP-gated signup staging)
+-- —————————————————————————————————————————————————————————————
+CREATE TABLE IF NOT EXISTS pending_registrations (
+    email           VARCHAR(255) PRIMARY KEY,
+    name            VARCHAR(100)    NOT NULL,
+    password_hash   TEXT            NOT NULL,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_registrations_created_at
+ON pending_registrations(created_at);

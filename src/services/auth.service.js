@@ -7,7 +7,6 @@
  * - Token expiry is configurable via JWT_EXPIRES_IN.
  */
 const bcrypt = require('bcrypt');
-const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { createClient } = require('@supabase/supabase-js');
 const pool = require('../database/pool');
@@ -21,30 +20,55 @@ const supabaseAuth = createClient(
 
 /**
  * Register a new user.
- * @returns {{ user, token }}
+ * Creates a pending signup and sends OTP.
+ * Real user is created only after OTP verification.
  */
 async function register({ name, email, password }) {
-  // Check for existing email
-  const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const duplicateEmailMessage =
+    'This email is already used. Please log in or use another email instead.';
+
+  // Block duplicate verified accounts.
+  const existing = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
   if (existing.rows.length > 0) {
-    const err = new Error('Email already registered');
+    const err = new Error(duplicateEmailMessage);
     err.status = 409;
     throw err;
   }
 
+  if (!name || name.trim().length < 2) {
+    const err = new Error('Name is required');
+    err.status = 400;
+    throw err;
+  }
+
   const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+  try {
+    await pool.query(
+      `INSERT INTO pending_registrations (email, name, password_hash)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (email)
+       DO UPDATE SET name = EXCLUDED.name,
+                     password_hash = EXCLUDED.password_hash,
+                     created_at = NOW()`,
+      [normalizedEmail, name.trim(), passwordHash]
+    );
+  } catch (dbErr) {
+    // Postgres unique_violation safeguard for any race conditions.
+    if (dbErr && dbErr.code === '23505') {
+      const err = new Error(duplicateEmailMessage);
+      err.status = 409;
+      throw err;
+    }
+    throw dbErr;
+  }
 
-  const result = await pool.query(
-    `INSERT INTO users (name, email, password_hash)
-     VALUES ($1, $2, $3)
-     RETURNING id, name, email, created_at`,
-    [name, email, passwordHash]
-  );
-
-  const user = result.rows[0];
-  const token = _generateToken(user);
-
-  return { user, token };
+  await _sendEmailOtp(normalizedEmail);
+  return {
+    otp_sent: true,
+    requires_verification: true,
+    message: 'OTP sent to email. Verify OTP to complete registration.',
+  };
 }
 
 /**
@@ -86,19 +110,7 @@ async function login({ email, password }) {
  */
 async function sendOtp({ email }) {
   const normalizedEmail = String(email).trim().toLowerCase();
-
-  const { error } = await supabaseAuth.auth.signInWithOtp({
-    email: normalizedEmail,
-    options: {
-      shouldCreateUser: true,
-    },
-  });
-
-  if (error) {
-    const err = new Error(`Failed to send OTP: ${error.message}`);
-    err.status = 400;
-    throw err;
-  }
+  await _sendEmailOtp(normalizedEmail);
 
   return { message: 'OTP sent to email' };
 }
@@ -111,6 +123,8 @@ async function sendOtp({ email }) {
  */
 async function verifyOtp({ email, token, name }) {
   const normalizedEmail = String(email).trim().toLowerCase();
+  const duplicateEmailMessage =
+    'This email is already used. Please log in or use another email instead.';
 
   const { error } = await supabaseAuth.auth.verifyOtp({
     email: normalizedEmail,
@@ -124,40 +138,72 @@ async function verifyOtp({ email, token, name }) {
     throw err;
   }
 
-  // Try existing local user first.
-  let result = await pool.query(
+  const pendingRes = await pool.query(
+    'SELECT email, name, password_hash FROM pending_registrations WHERE email = $1',
+    [normalizedEmail]
+  );
+
+  if (pendingRes.rows.length > 0) {
+    const pending = pendingRes.rows[0];
+
+    const existingUser = await pool.query(
+      'SELECT id FROM users WHERE email = $1',
+      [normalizedEmail]
+    );
+    if (existingUser.rows.length > 0) {
+      await pool.query('DELETE FROM pending_registrations WHERE email = $1', [normalizedEmail]);
+      return {
+        verified: true,
+        requires_login: true,
+        message: 'Email already verified. Please log in.',
+      };
+    }
+
+    let userRes;
+    try {
+      userRes = await pool.query(
+        `INSERT INTO users (name, email, password_hash)
+         VALUES ($1, $2, $3)
+         RETURNING id, name, email, created_at`,
+        [pending.name, pending.email, pending.password_hash]
+      );
+    } catch (dbErr) {
+      if (dbErr && dbErr.code === '23505') {
+        await pool.query('DELETE FROM pending_registrations WHERE email = $1', [normalizedEmail]);
+        const err = new Error(duplicateEmailMessage);
+        err.status = 409;
+        throw err;
+      }
+      throw dbErr;
+    }
+    const user = userRes.rows[0];
+    await pool.query('DELETE FROM pending_registrations WHERE email = $1', [normalizedEmail]);
+
+    return {
+      user,
+      verified: true,
+      requires_login: true,
+      message: 'Email verified successfully. Please log in.',
+    };
+  }
+
+  // If no pending signup, only allow acknowledgement for existing users.
+  const result = await pool.query(
     'SELECT id, name, email, created_at FROM users WHERE email = $1',
     [normalizedEmail]
   );
 
-  let user;
-  let isNewUser = false;
-
-  if (result.rows.length > 0) {
-    user = result.rows[0];
-  } else {
-    const displayName = name?.trim() || normalizedEmail.split('@')[0] || 'User';
-
-    // Local schema requires password_hash; generate a random one for OTP-created users.
-    const randomPassword = crypto.randomBytes(32).toString('hex');
-    const passwordHash = await bcrypt.hash(randomPassword, SALT_ROUNDS);
-
-    result = await pool.query(
-      `INSERT INTO users (name, email, password_hash)
-       VALUES ($1, $2, $3)
-       RETURNING id, name, email, created_at`,
-      [displayName, normalizedEmail, passwordHash]
-    );
-
-    user = result.rows[0];
-    isNewUser = true;
+  if (result.rows.length === 0) {
+    const err = new Error('No pending registration found for this email');
+    err.status = 400;
+    throw err;
   }
 
-  const tokenJwt = _generateToken(user);
   return {
-    user,
-    token: tokenJwt,
-    is_new_user: isNewUser,
+    user: result.rows[0],
+    verified: true,
+    requires_login: true,
+    message: 'Email verified. Please log in.',
   };
 }
 
@@ -167,6 +213,21 @@ function _generateToken(user) {
     config.jwt.secret,
     { expiresIn: config.jwt.expiresIn }
   );
+}
+
+async function _sendEmailOtp(email) {
+  const { error } = await supabaseAuth.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true,
+    },
+  });
+
+  if (error) {
+    const err = new Error(`Failed to send OTP: ${error.message}`);
+    err.status = 400;
+    throw err;
+  }
 }
 
 module.exports = { register, login, sendOtp, verifyOtp };
