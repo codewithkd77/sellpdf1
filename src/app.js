@@ -15,6 +15,7 @@ const paymentRoutes = require('./routes/payment.routes');
 const purchaseRoutes = require('./routes/purchase.routes');
 const shareRoutes = require('./routes/share.routes');
 const userRoutes = require('./routes/user.routes');
+const linkingRoutes = require('./routes/linking.routes');
 const { errorHandler, notFound } = require('./middleware/error.middleware');
 
 const app = express();
@@ -37,6 +38,8 @@ app.use('/api/pdf', pdfRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/purchase', purchaseRoutes);
 app.use('/api/user', userRoutes);
+app.use('/.well-known', linkingRoutes);
+app.use('/', linkingRoutes);
 
 // Share / deep-link landing page (serves HTML, not JSON)
 app.use('/share', shareRoutes);

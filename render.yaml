@@ -39,6 +39,12 @@ services:
         sync: false
       - key: PLATFORM_COMMISSION_RATE
         value: 0.10
+      - key: ANDROID_PACKAGE_NAME
+        value: com.example.sellpdf
+      - key: ANDROID_SHA256_CERT_FINGERPRINTS
+        sync: false  # Comma-separated SHA256 cert fingerprints for App Links
+      - key: IOS_APP_ID
+        sync: false  # TEAMID.bundleId for iOS Universal Links (e.g. ABC123XYZ.com.example.sellpdf)
 
 # Optional: If you want Render to manage your PostgreSQL database
 # databases:
