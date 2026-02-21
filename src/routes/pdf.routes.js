@@ -66,6 +66,14 @@ router.delete(
   controller.deleteProduct
 );
 
+// Update full product metadata (seller only)
+router.put(
+  '/:id',
+  authenticate,
+  upload.fields([{ name: 'cover', maxCount: 1 }]),
+  controller.updateProduct
+);
+
 // Update product price (seller only)
 router.put(
   '/:id/price',

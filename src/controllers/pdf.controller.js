@@ -117,4 +117,48 @@ async function updatePrice(req, res, next) {
   }
 }
 
-module.exports = { create, getById, getByCode, list, search, myProducts, access, deleteProduct, updatePrice };
+async function updateProduct(req, res, next) {
+  try {
+    const coverFile = req.files?.cover?.[0] || null;
+
+    const payload = {};
+    if (req.body.title !== undefined) payload.title = req.body.title;
+    if (req.body.description !== undefined) payload.description = req.body.description;
+    if (req.body.price !== undefined && req.body.price !== '') {
+      const price = parseFloat(req.body.price);
+      if (isNaN(price)) return res.status(400).json({ error: 'Invalid price' });
+      payload.price = price;
+    }
+    if (req.body.mrp !== undefined && req.body.mrp !== '') {
+      const mrp = parseFloat(req.body.mrp);
+      if (isNaN(mrp)) return res.status(400).json({ error: 'Invalid MRP' });
+      payload.mrp = mrp;
+    }
+    if (req.body.allow_download !== undefined) {
+      payload.allowDownload = req.body.allow_download === 'true' || req.body.allow_download === true;
+    }
+    payload.coverFile = coverFile;
+
+    const product = await pdfService.updateProductDetails(
+      req.params.id,
+      req.user.id,
+      payload
+    );
+    res.json(product);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  create,
+  getById,
+  getByCode,
+  list,
+  search,
+  myProducts,
+  access,
+  deleteProduct,
+  updatePrice,
+  updateProduct,
+};

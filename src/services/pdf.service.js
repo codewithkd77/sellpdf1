@@ -382,6 +382,104 @@ async function updatePrice(productId, sellerId, newPrice) {
   return attachCoverUrl(result.rows[0]);
 }
 
+/**
+ * Update product metadata (seller-only).
+ */
+async function updateProductDetails(
+  productId,
+  sellerId,
+  { title, description, mrp, price, allowDownload, coverFile }
+) {
+  const existingRes = await pool.query(
+    `SELECT id, title, description, mrp, price, allow_download, cover_path
+     FROM pdf_products
+     WHERE id = $1 AND seller_id = $2`,
+    [productId, sellerId]
+  );
+
+  if (existingRes.rows.length === 0) {
+    const err = new Error('Product not found or you do not own it');
+    err.status = 404;
+    throw err;
+  }
+
+  const existing = existingRes.rows[0];
+  const nextTitle = title !== undefined ? String(title).trim() : existing.title;
+  const nextDescription = description !== undefined ? (description || null) : existing.description;
+  const nextPrice = price !== undefined ? price : parseFloat(existing.price);
+  const nextMrp = mrp !== undefined ? mrp : (existing.mrp != null ? parseFloat(existing.mrp) : null);
+  const nextAllowDownload =
+    allowDownload !== undefined ? allowDownload : existing.allow_download;
+
+  if (!nextTitle || nextTitle.length < 3) {
+    const err = new Error('Title must be at least 3 characters');
+    err.status = 400;
+    throw err;
+  }
+  if (Number.isNaN(nextPrice) || nextPrice < 0) {
+    const err = new Error('Invalid discounted price');
+    err.status = 400;
+    throw err;
+  }
+  if (nextMrp != null && (Number.isNaN(nextMrp) || nextMrp < 0)) {
+    const err = new Error('Invalid MRP');
+    err.status = 400;
+    throw err;
+  }
+  if (nextMrp != null && nextMrp < nextPrice) {
+    const err = new Error('MRP must be greater than or equal to discounted price');
+    err.status = 400;
+    throw err;
+  }
+
+  let nextCoverPath = existing.cover_path;
+  if (coverFile) {
+    const coverExt = IMAGE_MIME_EXTENSION[coverFile.mimetype] || 'jpg';
+    const uploadedCoverPath = `${sellerId}/covers/${uuidv4()}.${coverExt}`;
+    const { error: coverUploadError } = await supabase.storage
+      .from(config.supabase.bucket)
+      .upload(uploadedCoverPath, coverFile.buffer, {
+        contentType: coverFile.mimetype,
+        upsert: false,
+      });
+
+    if (coverUploadError) {
+      const err = new Error(`Cover upload failed: ${coverUploadError.message}`);
+      err.status = 500;
+      throw err;
+    }
+    nextCoverPath = uploadedCoverPath;
+  }
+
+  const result = await pool.query(
+    `UPDATE pdf_products
+     SET title = $1,
+         description = $2,
+         mrp = $3,
+         price = $4,
+         allow_download = $5,
+         cover_path = $6,
+         updated_at = NOW()
+     WHERE id = $7
+     RETURNING *`,
+    [
+      nextTitle,
+      nextDescription,
+      nextMrp,
+      nextPrice,
+      nextAllowDownload,
+      nextCoverPath,
+      productId,
+    ]
+  );
+
+  if (coverFile && existing.cover_path && existing.cover_path !== nextCoverPath) {
+    await supabase.storage.from(config.supabase.bucket).remove([existing.cover_path]);
+  }
+
+  return attachCoverUrl(result.rows[0]);
+}
+
 module.exports = {
   createProduct,
   getProductById,
@@ -392,4 +490,5 @@ module.exports = {
   getSignedUrl,
   deleteProduct,
   updatePrice,
+  updateProductDetails,
 };
