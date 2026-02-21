@@ -18,24 +18,6 @@ async function login(req, res, next) {
   }
 }
 
-async function sendOtp(req, res, next) {
-  try {
-    const data = await authService.sendOtp(req.body);
-    res.json(data);
-  } catch (err) {
-    next(err);
-  }
-}
-
-async function verifyOtp(req, res, next) {
-  try {
-    const data = await authService.verifyOtp(req.body);
-    res.json(data);
-  } catch (err) {
-    next(err);
-  }
-}
-
 async function googleLogin(req, res, next) {
   try {
     const data = await authService.googleLogin(req.body);
@@ -45,4 +27,4 @@ async function googleLogin(req, res, next) {
   }
 }
 
-module.exports = { register, login, sendOtp, verifyOtp, googleLogin };
+module.exports = { register, login, googleLogin };

@@ -23,6 +23,13 @@ const supabase = require('../config/supabase');
 const config = require('../config');
 
 const SIGNED_URL_EXPIRY_SECONDS = 300; // 5 minutes
+const COVER_SIGNED_URL_EXPIRY_SECONDS = 86400; // 24 hours
+
+const IMAGE_MIME_EXTENSION = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
 
 /**
  * Generate a unique 6-character alphanumeric code (uppercase).
@@ -41,7 +48,7 @@ function generateShortCode() {
 /**
  * Upload a PDF and create a product record.
  */
-async function createProduct({ sellerId, title, description, price, allowDownload, file }) {
+async function createProduct({ sellerId, title, description, price, allowDownload, file, coverFile = null }) {
   // 1. Upload to Supabase storage
   const fileExt = 'pdf';
   const storagePath = `${sellerId}/${uuidv4()}.${fileExt}`;
@@ -59,7 +66,29 @@ async function createProduct({ sellerId, title, description, price, allowDownloa
     throw err;
   }
 
-  // 2. Generate a unique short code (retry on collision)
+  // 2. Optional cover upload
+  let coverPath = null;
+  if (coverFile) {
+    const coverExt = IMAGE_MIME_EXTENSION[coverFile.mimetype] || 'jpg';
+    coverPath = `${sellerId}/covers/${uuidv4()}.${coverExt}`;
+
+    const { error: coverUploadError } = await supabase.storage
+      .from(config.supabase.bucket)
+      .upload(coverPath, coverFile.buffer, {
+        contentType: coverFile.mimetype,
+        upsert: false,
+      });
+
+    if (coverUploadError) {
+      // Remove uploaded PDF to avoid orphan files when cover upload fails.
+      await supabase.storage.from(config.supabase.bucket).remove([storagePath]);
+      const err = new Error(`Cover upload failed: ${coverUploadError.message}`);
+      err.status = 500;
+      throw err;
+    }
+  }
+
+  // 3. Generate a unique short code (retry on collision)
   let shortCode;
   let attempts = 0;
   while (attempts < 10) {
@@ -72,15 +101,39 @@ async function createProduct({ sellerId, title, description, price, allowDownloa
     attempts++;
   }
 
-  // 3. Insert product record
+  // 4. Insert product record
   const result = await pool.query(
-    `INSERT INTO pdf_products (seller_id, short_code, title, description, price, allow_download, file_path, file_size)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO pdf_products (seller_id, short_code, title, description, price, allow_download, file_path, cover_path, file_size)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
-    [sellerId, shortCode, title, description, price, allowDownload, storagePath, file.size]
+    [sellerId, shortCode, title, description, price, allowDownload, storagePath, coverPath, file.size]
   );
 
-  return result.rows[0];
+  return attachCoverUrl(result.rows[0]);
+}
+
+async function createCoverSignedUrl(coverPath) {
+  const { data, error } = await supabase.storage
+    .from(config.supabase.bucket)
+    .createSignedUrl(coverPath, COVER_SIGNED_URL_EXPIRY_SECONDS);
+
+  if (error) {
+    return null;
+  }
+  return data?.signedUrl || null;
+}
+
+async function attachCoverUrl(product) {
+  if (!product) return product;
+  if (!product.cover_path) {
+    return { ...product, cover_url: null };
+  }
+  const coverUrl = await createCoverSignedUrl(product.cover_path);
+  return { ...product, cover_url: coverUrl };
+}
+
+async function attachCoverUrls(products) {
+  return Promise.all(products.map((product) => attachCoverUrl(product)));
 }
 
 /**
@@ -101,7 +154,7 @@ async function getProductById(productId) {
     throw err;
   }
 
-  return result.rows[0];
+  return attachCoverUrl(result.rows[0]);
 }
 
 /**
@@ -122,7 +175,7 @@ async function getProductByCode(shortCode) {
     throw err;
   }
 
-  return result.rows[0];
+  return attachCoverUrl(result.rows[0]);
 }
 
 /**
@@ -131,7 +184,7 @@ async function getProductByCode(shortCode) {
 async function listProducts({ page = 1, limit = 20 }) {
   const offset = (page - 1) * limit;
   const result = await pool.query(
-    `SELECT p.id, p.short_code, p.title, p.description, p.price, p.allow_download,
+    `SELECT p.id, p.short_code, p.title, p.description, p.price, p.allow_download, p.cover_path,
             p.created_at, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
@@ -139,7 +192,7 @@ async function listProducts({ page = 1, limit = 20 }) {
      LIMIT $1 OFFSET $2`,
     [limit, offset]
   );
-  return result.rows;
+  return attachCoverUrls(result.rows);
 }
 
 /**
@@ -148,7 +201,7 @@ async function listProducts({ page = 1, limit = 20 }) {
 async function searchProducts(query) {
   const searchTerm = `%${query}%`;
   const result = await pool.query(
-    `SELECT p.id, p.short_code, p.title, p.description, p.price, p.allow_download,
+    `SELECT p.id, p.short_code, p.title, p.description, p.price, p.allow_download, p.cover_path,
             p.created_at, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
@@ -158,7 +211,7 @@ async function searchProducts(query) {
      ORDER BY p.created_at DESC`,
     [searchTerm]
   );
-  return result.rows;
+  return attachCoverUrls(result.rows);
 }
 
 /**
@@ -169,7 +222,7 @@ async function listSellerProducts(sellerId) {
     `SELECT * FROM pdf_products WHERE seller_id = $1 ORDER BY created_at DESC`,
     [sellerId]
   );
-  return result.rows;
+  return attachCoverUrls(result.rows);
 }
 
 /**
@@ -231,7 +284,7 @@ async function getSignedUrl(productId, buyerId) {
 async function deleteProduct(productId, sellerId) {
   // 1. Verify the seller owns this product
   const product = await pool.query(
-    'SELECT file_path FROM pdf_products WHERE id = $1 AND seller_id = $2',
+    'SELECT file_path, cover_path FROM pdf_products WHERE id = $1 AND seller_id = $2',
     [productId, sellerId]
   );
 
@@ -241,7 +294,10 @@ async function deleteProduct(productId, sellerId) {
     throw err;
   }
 
-  const filePath = product.rows[0].file_path;
+  const filePaths = [product.rows[0].file_path];
+  if (product.rows[0].cover_path) {
+    filePaths.push(product.rows[0].cover_path);
+  }
 
   // 2. Delete from database (cascade will handle related purchases/earnings)
   await pool.query('DELETE FROM pdf_products WHERE id = $1', [productId]);
@@ -249,7 +305,7 @@ async function deleteProduct(productId, sellerId) {
   // 3. Delete file from Supabase storage
   const { error } = await supabase.storage
     .from(config.supabase.bucket)
-    .remove([filePath]);
+    .remove(filePaths);
 
   if (error) {
     console.error('Failed to delete file from storage:', error.message);
@@ -288,7 +344,7 @@ async function updatePrice(productId, sellerId, newPrice) {
     [newPrice, productId]
   );
 
-  return result.rows[0];
+  return attachCoverUrl(result.rows[0]);
 }
 
 module.exports = {

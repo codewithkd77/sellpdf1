@@ -11,16 +11,6 @@ const loginSchema = Joi.object({
   password: Joi.string().required(),
 });
 
-const sendOtpSchema = Joi.object({
-  email: Joi.string().email().required(),
-});
-
-const verifyOtpSchema = Joi.object({
-  email: Joi.string().email().required(),
-  token: Joi.string().min(4).max(10).required(),
-  name: Joi.string().min(2).max(100).optional(),
-});
-
 const googleLoginSchema = Joi.object({
   idToken: Joi.string().required(),
 });
@@ -28,7 +18,5 @@ const googleLoginSchema = Joi.object({
 module.exports = {
   registerSchema,
   loginSchema,
-  sendOtpSchema,
-  verifyOtpSchema,
   googleLoginSchema,
 };

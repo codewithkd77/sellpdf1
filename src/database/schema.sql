@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS pdf_products (
     price           NUMERIC(10, 2)  NOT NULL CHECK (price >= 0),
     allow_download  BOOLEAN         NOT NULL DEFAULT false,
     file_path       TEXT            NOT NULL,       -- Supabase storage path: "pdfs/<seller_id>/<uuid>.pdf"
+    cover_path      TEXT,                           -- Optional cover image storage path
     file_size       BIGINT,
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
@@ -45,6 +46,7 @@ CREATE TABLE IF NOT EXISTS pdf_products (
 
 CREATE INDEX IF NOT EXISTS idx_pdf_products_seller ON pdf_products(seller_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pdf_products_short_code ON pdf_products(short_code);
+ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS cover_path TEXT;
 
 -- ─────────────────────────────────────────────
 -- 3. PURCHASES
@@ -84,16 +86,3 @@ CREATE TABLE IF NOT EXISTS earnings (
 
 CREATE INDEX IF NOT EXISTS idx_earnings_seller   ON earnings(seller_id);
 CREATE INDEX IF NOT EXISTS idx_earnings_purchase ON earnings(purchase_id);
-
--- —————————————————————————————————————————————————————————————
--- 5. PENDING REGISTRATIONS (OTP-gated signup staging)
--- —————————————————————————————————————————————————————————————
-CREATE TABLE IF NOT EXISTS pending_registrations (
-    email           VARCHAR(255) PRIMARY KEY,
-    name            VARCHAR(100)    NOT NULL,
-    password_hash   TEXT            NOT NULL,
-    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_pending_registrations_created_at
-ON pending_registrations(created_at);

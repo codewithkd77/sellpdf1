@@ -2,7 +2,10 @@ const pdfService = require('../services/pdf.service');
 
 async function create(req, res, next) {
   try {
-    if (!req.file) {
+    const pdfFile = req.files?.file?.[0];
+    const coverFile = req.files?.cover?.[0] || null;
+
+    if (!pdfFile) {
       return res.status(400).json({ error: 'PDF file is required' });
     }
 
@@ -12,7 +15,8 @@ async function create(req, res, next) {
       description: req.body.description || null,
       price: parseFloat(req.body.price),
       allowDownload: req.body.allow_download === 'true' || req.body.allow_download === true,
-      file: req.file,
+      file: pdfFile,
+      coverFile,
     });
 
     res.status(201).json(product);
