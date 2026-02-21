@@ -48,7 +48,29 @@ function generateShortCode() {
 /**
  * Upload a PDF and create a product record.
  */
-async function createProduct({ sellerId, title, description, price, allowDownload, file, coverFile = null }) {
+async function createProduct({
+  sellerId,
+  title,
+  description,
+  mrp = null,
+  price,
+  allowDownload,
+  file,
+  coverFile = null,
+}) {
+  if (Number.isNaN(price) || price < 0) {
+    const err = new Error('Invalid discounted price');
+    err.status = 400;
+    throw err;
+  }
+
+  const normalizedMrp = mrp == null || Number.isNaN(mrp) ? null : mrp;
+  if (normalizedMrp != null && normalizedMrp < price) {
+    const err = new Error('MRP must be greater than or equal to discounted price');
+    err.status = 400;
+    throw err;
+  }
+
   // 1. Upload to Supabase storage
   const fileExt = 'pdf';
   const storagePath = `${sellerId}/${uuidv4()}.${fileExt}`;
@@ -103,10 +125,21 @@ async function createProduct({ sellerId, title, description, price, allowDownloa
 
   // 4. Insert product record
   const result = await pool.query(
-    `INSERT INTO pdf_products (seller_id, short_code, title, description, price, allow_download, file_path, cover_path, file_size)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO pdf_products (seller_id, short_code, title, description, mrp, price, allow_download, file_path, cover_path, file_size)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING *`,
-    [sellerId, shortCode, title, description, price, allowDownload, storagePath, coverPath, file.size]
+    [
+      sellerId,
+      shortCode,
+      title,
+      description,
+      normalizedMrp,
+      price,
+      allowDownload,
+      storagePath,
+      coverPath,
+      file.size,
+    ]
   );
 
   return attachCoverUrl(result.rows[0]);
@@ -185,6 +218,7 @@ async function listProducts({ page = 1, limit = 20 }) {
   const offset = (page - 1) * limit;
   const result = await pool.query(
     `SELECT p.id, p.short_code, p.title, p.description, p.price, p.allow_download, p.cover_path,
+            p.mrp,
             p.created_at, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
@@ -202,6 +236,7 @@ async function searchProducts(query) {
   const searchTerm = `%${query}%`;
   const result = await pool.query(
     `SELECT p.id, p.short_code, p.title, p.description, p.price, p.allow_download, p.cover_path,
+            p.mrp,
             p.created_at, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id

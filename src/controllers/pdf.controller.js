@@ -13,6 +13,7 @@ async function create(req, res, next) {
       sellerId: req.user.id,
       title: req.body.title,
       description: req.body.description || null,
+      mrp: req.body.mrp != null && req.body.mrp !== '' ? parseFloat(req.body.mrp) : null,
       price: parseFloat(req.body.price),
       allowDownload: req.body.allow_download === 'true' || req.body.allow_download === true,
       file: pdfFile,

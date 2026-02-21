@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS pdf_products (
     short_code      VARCHAR(6)      NOT NULL UNIQUE,  -- 6-char human-friendly code
     title           VARCHAR(255)    NOT NULL,
     description     TEXT,
+    mrp             NUMERIC(10, 2)  CHECK (mrp IS NULL OR mrp >= 0),
     price           NUMERIC(10, 2)  NOT NULL CHECK (price >= 0),
     allow_download  BOOLEAN         NOT NULL DEFAULT false,
     file_path       TEXT            NOT NULL,       -- Supabase storage path: "pdfs/<seller_id>/<uuid>.pdf"
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS pdf_products (
 CREATE INDEX IF NOT EXISTS idx_pdf_products_seller ON pdf_products(seller_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_pdf_products_short_code ON pdf_products(short_code);
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS cover_path TEXT;
+ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS mrp NUMERIC(10, 2);
 
 -- ─────────────────────────────────────────────
 -- 3. PURCHASES
