@@ -21,9 +21,14 @@ const verifyOtpSchema = Joi.object({
   name: Joi.string().min(2).max(100).optional(),
 });
 
+const googleLoginSchema = Joi.object({
+  idToken: Joi.string().required(),
+});
+
 module.exports = {
   registerSchema,
   loginSchema,
   sendOtpSchema,
   verifyOtpSchema,
+  googleLoginSchema,
 };

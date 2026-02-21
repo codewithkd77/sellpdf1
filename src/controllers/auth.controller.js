@@ -36,4 +36,13 @@ async function verifyOtp(req, res, next) {
   }
 }
 
-module.exports = { register, login, sendOtp, verifyOtp };
+async function googleLogin(req, res, next) {
+  try {
+    const data = await authService.googleLogin(req.body);
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { register, login, sendOtp, verifyOtp, googleLogin };

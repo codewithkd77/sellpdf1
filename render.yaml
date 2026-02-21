@@ -47,6 +47,10 @@ services:
         sync: false  # Comma-separated SHA256 cert fingerprints for App Links
       - key: IOS_APP_ID
         sync: false  # TEAMID.bundleId for iOS Universal Links (e.g. ABC123XYZ.com.example.sellpdf)
+      - key: GOOGLE_WEB_CLIENT_ID
+        sync: false
+      - key: GOOGLE_MOBILE_CLIENT_ID
+        sync: false
 
 # Optional: If you want Render to manage your PostgreSQL database
 # databases:

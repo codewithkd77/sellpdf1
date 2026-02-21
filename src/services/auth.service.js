@@ -8,6 +8,7 @@
  */
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const { createClient } = require('@supabase/supabase-js');
 const pool = require('../database/pool');
 const config = require('../config');
@@ -17,6 +18,7 @@ const supabaseAuth = createClient(
   config.supabase.url,
   config.supabase.anonKey || config.supabase.serviceRoleKey
 );
+const googleClient = new OAuth2Client();
 
 /**
  * Register a new user.
@@ -101,6 +103,56 @@ async function login({ email, password }) {
   delete user.password_hash;
   const token = _generateToken(user);
 
+  return { user, token };
+}
+
+/**
+ * Google Sign-In login.
+ * Verifies Google ID token, then returns local app JWT.
+ */
+async function googleLogin({ idToken }) {
+  const audience = [config.google.webClientId, config.google.mobileClientId].filter(Boolean);
+  if (audience.length === 0) {
+    const err = new Error('Google login is not configured on server');
+    err.status = 500;
+    throw err;
+  }
+
+  const ticket = await googleClient.verifyIdToken({
+    idToken,
+    audience,
+  });
+
+  const payload = ticket.getPayload();
+  if (!payload || !payload.email) {
+    const err = new Error('Invalid Google token payload');
+    err.status = 401;
+    throw err;
+  }
+
+  const normalizedEmail = String(payload.email).trim().toLowerCase();
+  const googleName = String(payload.name || normalizedEmail.split('@')[0] || 'User').trim();
+
+  let result = await pool.query(
+    'SELECT id, name, email, created_at FROM users WHERE email = $1',
+    [normalizedEmail]
+  );
+
+  if (result.rows.length === 0) {
+    const randomPassword = await bcrypt.hash(
+      `${normalizedEmail}:${Date.now()}:${Math.random()}`,
+      SALT_ROUNDS
+    );
+    result = await pool.query(
+      `INSERT INTO users (name, email, password_hash)
+       VALUES ($1, $2, $3)
+       RETURNING id, name, email, created_at`,
+      [googleName, normalizedEmail, randomPassword]
+    );
+  }
+
+  const user = result.rows[0];
+  const token = _generateToken(user);
   return { user, token };
 }
 
@@ -230,4 +282,4 @@ async function _sendEmailOtp(email) {
   }
 }
 
-module.exports = { register, login, sendOtp, verifyOtp };
+module.exports = { register, login, sendOtp, verifyOtp, googleLogin };

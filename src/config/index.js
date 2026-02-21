@@ -42,4 +42,10 @@ module.exports = {
   platform: {
     commissionRate: Number(process.env.PLATFORM_COMMISSION_RATE) || 0.10,
   },
+
+  // Google OAuth
+  google: {
+    webClientId: process.env.GOOGLE_WEB_CLIENT_ID,
+    mobileClientId: process.env.GOOGLE_MOBILE_CLIENT_ID,
+  },
 };
