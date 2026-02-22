@@ -21,7 +21,8 @@ router.get('/product/:id', async (req, res) => {
       `SELECT p.id, p.title, p.author_name, p.description, p.price, u.name AS seller_name
        FROM pdf_products p
        JOIN users u ON u.id = p.seller_id
-       WHERE p.id = $1`,
+       WHERE p.id = $1
+         AND p.is_active = true`,
       [id]
     );
 

@@ -198,7 +198,8 @@ async function getProductById(productId) {
     `SELECT p.*, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
-     WHERE p.id = $1`,
+     WHERE p.id = $1
+       AND p.is_active = true`,
     [productId]
   );
 
@@ -219,7 +220,8 @@ async function getProductByCode(shortCode) {
     `SELECT p.*, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
-     WHERE UPPER(p.short_code) = UPPER($1)`,
+     WHERE UPPER(p.short_code) = UPPER($1)
+       AND p.is_active = true`,
     [shortCode]
   );
 
@@ -243,6 +245,7 @@ async function listProducts({ page = 1, limit = 20 }) {
             p.created_at, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
+     WHERE p.is_active = true
      ORDER BY p.created_at DESC
      LIMIT $1 OFFSET $2`,
     [limit, offset]
@@ -261,9 +264,12 @@ async function searchProducts(query) {
             p.created_at, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
-     WHERE UPPER(p.title) LIKE UPPER($1)
+     WHERE p.is_active = true
+       AND (
+           UPPER(p.title) LIKE UPPER($1)
         OR UPPER(p.description) LIKE UPPER($1)
         OR UPPER(p.short_code) LIKE UPPER($1)
+       )
      ORDER BY p.created_at DESC`,
     [searchTerm]
   );
@@ -275,7 +281,9 @@ async function searchProducts(query) {
  */
 async function listSellerProducts(sellerId) {
   const result = await pool.query(
-    `SELECT * FROM pdf_products WHERE seller_id = $1 ORDER BY created_at DESC`,
+    `SELECT * FROM pdf_products
+     WHERE seller_id = $1 AND is_active = true
+     ORDER BY created_at DESC`,
     [sellerId]
   );
   return attachCoverUrls(result.rows);
@@ -340,7 +348,7 @@ async function getSignedUrl(productId, buyerId) {
 async function deleteProduct(productId, sellerId) {
   // 1. Verify the seller owns this product
   const product = await pool.query(
-    'SELECT file_path, cover_path FROM pdf_products WHERE id = $1 AND seller_id = $2',
+    'SELECT id, file_path, cover_path FROM pdf_products WHERE id = $1 AND seller_id = $2',
     [productId, sellerId]
   );
 
@@ -350,25 +358,48 @@ async function deleteProduct(productId, sellerId) {
     throw err;
   }
 
+  // 2. Check if there are paid purchases.
+  const paidRes = await pool.query(
+    `SELECT COUNT(*)::int AS total
+     FROM purchases
+     WHERE product_id = $1 AND status = 'paid'`,
+    [productId]
+  );
+  const paidCount = paidRes.rows[0]?.total || 0;
+
+  // 3A. If paid purchases exist -> soft delete (unlist only).
+  if (paidCount > 0) {
+    await pool.query(
+      `UPDATE pdf_products
+       SET is_active = false,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [productId]
+    );
+    return {
+      message: 'Product removed from marketplace. Existing buyers keep access.',
+      soft_deleted: true,
+    };
+  }
+
+  // 3B. No paid purchases -> hard delete DB row + storage files.
   const filePaths = [product.rows[0].file_path];
   if (product.rows[0].cover_path) {
     filePaths.push(product.rows[0].cover_path);
   }
 
-  // 2. Delete from database (cascade will handle related purchases/earnings)
   await pool.query('DELETE FROM pdf_products WHERE id = $1', [productId]);
 
-  // 3. Delete file from Supabase storage
   const { error } = await supabase.storage
     .from(config.supabase.bucket)
     .remove(filePaths);
 
   if (error) {
     console.error('Failed to delete file from storage:', error.message);
-    // Don't throw error here - product is already deleted from DB
+    // Do not throw: DB delete already succeeded.
   }
 
-  return { message: 'Product deleted successfully' };
+  return { message: 'Product deleted permanently', soft_deleted: false };
 }
 
 /**
