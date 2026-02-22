@@ -24,6 +24,7 @@ const config = require('../config');
 
 const SIGNED_URL_EXPIRY_SECONDS = 300; // 5 minutes
 const COVER_SIGNED_URL_EXPIRY_SECONDS = 86400; // 24 hours
+const MAX_PRODUCTS_PER_SELLER = 10;
 
 const IMAGE_MIME_EXTENSION = {
   'image/jpeg': 'jpg',
@@ -75,6 +76,17 @@ async function createProduct({
   const normalizedMrp = mrp == null || Number.isNaN(mrp) ? null : mrp;
   if (normalizedMrp != null && normalizedMrp < price) {
     const err = new Error('MRP must be greater than or equal to discounted price');
+    err.status = 400;
+    throw err;
+  }
+
+  const countRes = await pool.query(
+    'SELECT COUNT(*)::int AS total FROM pdf_products WHERE seller_id = $1',
+    [sellerId]
+  );
+  const totalProducts = countRes.rows[0]?.total || 0;
+  if (totalProducts >= MAX_PRODUCTS_PER_SELLER) {
+    const err = new Error('You can upload a maximum of 10 PDFs per account');
     err.status = 400;
     throw err;
   }

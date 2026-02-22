@@ -5,10 +5,10 @@ const { authenticate } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-// Multer memory storage: max 50 MB PDF, max 5 MB optional cover image.
+// Multer memory storage: max 10 MB PDF, max 5 MB optional cover image.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (file.fieldname === 'file' && file.mimetype === 'application/pdf') {
       cb(null, true);
