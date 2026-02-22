@@ -51,6 +51,7 @@ function generateShortCode() {
 async function createProduct({
   sellerId,
   title,
+  authorName,
   description,
   mrp = null,
   price,
@@ -58,6 +59,13 @@ async function createProduct({
   file,
   coverFile = null,
 }) {
+  const normalizedAuthorName = String(authorName || '').trim();
+  if (!normalizedAuthorName || normalizedAuthorName.length < 2) {
+    const err = new Error('Author name is required');
+    err.status = 400;
+    throw err;
+  }
+
   if (Number.isNaN(price) || price < 0) {
     const err = new Error('Invalid discounted price');
     err.status = 400;
@@ -125,13 +133,14 @@ async function createProduct({
 
   // 4. Insert product record
   const result = await pool.query(
-    `INSERT INTO pdf_products (seller_id, short_code, title, description, mrp, price, allow_download, file_path, cover_path, file_size)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO pdf_products (seller_id, short_code, title, author_name, description, mrp, price, allow_download, file_path, cover_path, file_size)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      RETURNING *`,
     [
       sellerId,
       shortCode,
       title,
+      normalizedAuthorName,
       description,
       normalizedMrp,
       price,
@@ -217,7 +226,7 @@ async function getProductByCode(shortCode) {
 async function listProducts({ page = 1, limit = 20 }) {
   const offset = (page - 1) * limit;
   const result = await pool.query(
-    `SELECT p.id, p.short_code, p.title, p.description, p.price, p.allow_download, p.cover_path,
+    `SELECT p.id, p.short_code, p.title, p.author_name, p.description, p.price, p.allow_download, p.cover_path,
             p.mrp,
             p.created_at, u.name AS seller_name
      FROM pdf_products p
@@ -235,7 +244,7 @@ async function listProducts({ page = 1, limit = 20 }) {
 async function searchProducts(query) {
   const searchTerm = `%${query}%`;
   const result = await pool.query(
-    `SELECT p.id, p.short_code, p.title, p.description, p.price, p.allow_download, p.cover_path,
+    `SELECT p.id, p.short_code, p.title, p.author_name, p.description, p.price, p.allow_download, p.cover_path,
             p.mrp,
             p.created_at, u.name AS seller_name
      FROM pdf_products p
@@ -388,10 +397,10 @@ async function updatePrice(productId, sellerId, newPrice) {
 async function updateProductDetails(
   productId,
   sellerId,
-  { title, description, mrp, price, allowDownload, coverFile }
+  { title, authorName, description, mrp, price, allowDownload, coverFile }
 ) {
   const existingRes = await pool.query(
-    `SELECT id, title, description, mrp, price, allow_download, cover_path
+    `SELECT id, title, author_name, description, mrp, price, allow_download, cover_path
      FROM pdf_products
      WHERE id = $1 AND seller_id = $2`,
     [productId, sellerId]
@@ -405,6 +414,8 @@ async function updateProductDetails(
 
   const existing = existingRes.rows[0];
   const nextTitle = title !== undefined ? String(title).trim() : existing.title;
+  const nextAuthorName =
+    authorName !== undefined ? String(authorName).trim() : existing.author_name;
   const nextDescription = description !== undefined ? (description || null) : existing.description;
   const nextPrice = price !== undefined ? price : parseFloat(existing.price);
   const nextMrp = mrp !== undefined ? mrp : (existing.mrp != null ? parseFloat(existing.mrp) : null);
@@ -413,6 +424,11 @@ async function updateProductDetails(
 
   if (!nextTitle || nextTitle.length < 3) {
     const err = new Error('Title must be at least 3 characters');
+    err.status = 400;
+    throw err;
+  }
+  if (authorName !== undefined && (!nextAuthorName || nextAuthorName.length < 2)) {
+    const err = new Error('Author name is required');
     err.status = 400;
     throw err;
   }
@@ -454,16 +470,18 @@ async function updateProductDetails(
   const result = await pool.query(
     `UPDATE pdf_products
      SET title = $1,
-         description = $2,
-         mrp = $3,
-         price = $4,
-         allow_download = $5,
-         cover_path = $6,
+         author_name = $2,
+         description = $3,
+         mrp = $4,
+         price = $5,
+         allow_download = $6,
+         cover_path = $7,
          updated_at = NOW()
-     WHERE id = $7
+     WHERE id = $8
      RETURNING *`,
     [
       nextTitle,
+      nextAuthorName,
       nextDescription,
       nextMrp,
       nextPrice,

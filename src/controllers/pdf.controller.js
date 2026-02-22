@@ -12,6 +12,7 @@ async function create(req, res, next) {
     const product = await pdfService.createProduct({
       sellerId: req.user.id,
       title: req.body.title,
+      authorName: req.body.author_name,
       description: req.body.description || null,
       mrp: req.body.mrp != null && req.body.mrp !== '' ? parseFloat(req.body.mrp) : null,
       price: parseFloat(req.body.price),
@@ -123,6 +124,7 @@ async function updateProduct(req, res, next) {
 
     const payload = {};
     if (req.body.title !== undefined) payload.title = req.body.title;
+    if (req.body.author_name !== undefined) payload.authorName = req.body.author_name;
     if (req.body.description !== undefined) payload.description = req.body.description;
     if (req.body.price !== undefined && req.body.price !== '') {
       const price = parseFloat(req.body.price);

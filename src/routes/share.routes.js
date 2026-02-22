@@ -18,7 +18,7 @@ router.get('/product/:id', async (req, res) => {
     const { id } = req.params;
 
     const result = await pool.query(
-      `SELECT p.id, p.title, p.description, p.price, u.name AS seller_name
+      `SELECT p.id, p.title, p.author_name, p.description, p.price, u.name AS seller_name
        FROM pdf_products p
        JOIN users u ON u.id = p.seller_id
        WHERE p.id = $1`,
@@ -43,7 +43,7 @@ router.get('/product/:id', async (req, res) => {
 
   <!-- Open Graph tags for rich link previews (WhatsApp, Telegram, etc.) -->
   <meta property="og:title" content="${product.title}" />
-  <meta property="og:description" content="${product.description || 'Buy this PDF on NoteBay app'} — ₹${price} by ${product.seller_name}" />
+  <meta property="og:description" content="${product.description || 'Buy this PDF on NoteBay app'} — ₹${price} by ${product.author_name || product.seller_name}" />
   <meta property="og:type" content="product" />
   <meta property="og:url" content="${req.protocol}://${req.get('host')}/share/product/${product.id}" />
 
@@ -98,7 +98,7 @@ router.get('/product/:id', async (req, res) => {
   <div class="card">
     <div class="pdf-icon">📄</div>
     <h1>${product.title}</h1>
-    <p class="seller">by ${product.seller_name}</p>
+    <p class="seller">by ${product.author_name || product.seller_name}</p>
     ${product.description ? `<p class="description">${product.description}</p>` : ''}
     <div class="price">₹${price}</div>
     <a class="btn" id="openApp" href="${deepLink}">Open in App</a>
@@ -120,3 +120,4 @@ router.get('/product/:id', async (req, res) => {
 });
 
 module.exports = router;
+
