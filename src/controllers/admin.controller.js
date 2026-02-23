@@ -49,6 +49,18 @@ async function reject(req, res, next) {
   }
 }
 
+async function reviewUrl(req, res, next) {
+  try {
+    const data = await adminService.getProductReviewUrl({
+      productId: req.params.id,
+      adminId: req.user.id,
+    });
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function users(req, res, next) {
   try {
     const page = parseInt(req.query.page, 10) || 1;
@@ -96,6 +108,7 @@ async function auditLogs(req, res, next) {
 module.exports = {
   login,
   moderationQueue,
+  reviewUrl,
   approve,
   reject,
   users,

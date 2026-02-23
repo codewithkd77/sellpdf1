@@ -1,7 +1,9 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../database/pool');
 const config = require('../config');
+const supabase = require('../config/supabase');
 const { logAudit } = require('./audit.service');
+const ADMIN_REVIEW_URL_EXPIRY_SECONDS = 600;
 
 async function login({ adminId, password }) {
   if (adminId !== config.admin.id || password !== config.admin.password) {
@@ -273,6 +275,49 @@ async function listAuditLogs({ page = 1, limit = 50 }) {
   return result.rows;
 }
 
+async function getProductReviewUrl({ productId, adminId }) {
+  const productRes = await pool.query(
+    `SELECT id, file_path, title, seller_id, review_status
+     FROM pdf_products
+     WHERE id = $1`,
+    [productId]
+  );
+
+  if (productRes.rows.length === 0) {
+    const err = new Error('Product not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const product = productRes.rows[0];
+  const { data, error } = await supabase.storage
+    .from(config.supabase.bucket)
+    .createSignedUrl(product.file_path, ADMIN_REVIEW_URL_EXPIRY_SECONDS);
+
+  if (error || !data?.signedUrl) {
+    const err = new Error(`Failed to generate review URL: ${error?.message || 'unknown error'}`);
+    err.status = 500;
+    throw err;
+  }
+
+  await logAudit({
+    actorType: 'admin',
+    actorId: adminId,
+    action: 'moderation.preview',
+    targetType: 'pdf_product',
+    targetId: productId,
+    metadata: { review_status: product.review_status },
+  }).catch(() => {});
+
+  return {
+    product_id: product.id,
+    title: product.title,
+    review_status: product.review_status,
+    signed_url: data.signedUrl,
+    expires_in: ADMIN_REVIEW_URL_EXPIRY_SECONDS,
+  };
+}
+
 module.exports = {
   login,
   listModerationQueue,
@@ -282,4 +327,5 @@ module.exports = {
   getUserDetails,
   listOrders,
   listAuditLogs,
+  getProductReviewUrl,
 };

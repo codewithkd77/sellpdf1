@@ -9,6 +9,7 @@ router.post('/login', controller.login);
 router.use(authenticate, authorizeAdmin);
 
 router.get('/moderation', controller.moderationQueue);
+router.get('/moderation/:id/review-url', controller.reviewUrl);
 router.post('/moderation/:id/approve', controller.approve);
 router.post('/moderation/:id/reject', controller.reject);
 
