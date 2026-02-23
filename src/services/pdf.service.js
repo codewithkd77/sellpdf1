@@ -145,8 +145,8 @@ async function createProduct({
 
   // 4. Insert product record
   const result = await pool.query(
-    `INSERT INTO pdf_products (seller_id, short_code, title, author_name, description, mrp, price, allow_download, file_path, cover_path, file_size)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO pdf_products (seller_id, short_code, title, author_name, description, mrp, price, allow_download, file_path, cover_path, file_size, review_status, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending_review', false)
      RETURNING *`,
     [
       sellerId,
@@ -199,7 +199,8 @@ async function getProductById(productId) {
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
      WHERE p.id = $1
-       AND p.is_active = true`,
+       AND p.is_active = true
+       AND p.review_status = 'approved'`,
     [productId]
   );
 
@@ -221,7 +222,8 @@ async function getProductByCode(shortCode) {
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
      WHERE UPPER(p.short_code) = UPPER($1)
-       AND p.is_active = true`,
+       AND p.is_active = true
+       AND p.review_status = 'approved'`,
     [shortCode]
   );
 
@@ -246,6 +248,7 @@ async function listProducts({ page = 1, limit = 20 }) {
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
      WHERE p.is_active = true
+       AND p.review_status = 'approved'
      ORDER BY p.created_at DESC
      LIMIT $1 OFFSET $2`,
     [limit, offset]
@@ -265,6 +268,7 @@ async function searchProducts(query) {
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
      WHERE p.is_active = true
+       AND p.review_status = 'approved'
        AND (
            UPPER(p.title) LIKE UPPER($1)
         OR UPPER(p.description) LIKE UPPER($1)
@@ -282,7 +286,7 @@ async function searchProducts(query) {
 async function listSellerProducts(sellerId) {
   const result = await pool.query(
     `SELECT * FROM pdf_products
-     WHERE seller_id = $1 AND is_active = true
+     WHERE seller_id = $1
      ORDER BY created_at DESC`,
     [sellerId]
   );
@@ -519,6 +523,11 @@ async function updateProductDetails(
          price = $5,
          allow_download = $6,
          cover_path = $7,
+         review_status = 'pending_review',
+         rejection_reason = NULL,
+         reviewed_by = NULL,
+         reviewed_at = NULL,
+         is_active = false,
          updated_at = NOW()
      WHERE id = $8
      RETURNING *`,

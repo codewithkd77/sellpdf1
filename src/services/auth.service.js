@@ -46,7 +46,7 @@ async function register({ name, email, password }) {
     [name.trim(), normalizedEmail, passwordHash]
   );
 
-  const user = result.rows[0];
+  const user = { ...result.rows[0], role: 'user' };
   const token = _generateToken(user);
   return { user, token };
 }
@@ -79,6 +79,7 @@ async function login({ email, password }) {
 
   // Strip password_hash before returning
   delete user.password_hash;
+  user.role = 'user';
   const token = _generateToken(user);
 
   return { user, token };
@@ -129,14 +130,14 @@ async function googleLogin({ idToken }) {
     );
   }
 
-  const user = result.rows[0];
+  const user = { ...result.rows[0], role: 'user' };
   const token = _generateToken(user);
   return { user, token };
 }
 
 function _generateToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email },
+    { id: user.id, email: user.email, role: user.role || 'user' },
     config.jwt.secret,
     { expiresIn: config.jwt.expiresIn }
   );

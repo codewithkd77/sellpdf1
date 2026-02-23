@@ -48,4 +48,10 @@ module.exports = {
     webClientId: process.env.GOOGLE_WEB_CLIENT_ID,
     mobileClientId: process.env.GOOGLE_MOBILE_CLIENT_ID,
   },
+
+  // Admin panel (fixed credentials)
+  admin: {
+    id: process.env.ADMIN_ID || 'kdkd',
+    password: process.env.ADMIN_PASSWORD || 'kdkd@786',
+  },
 };

@@ -44,7 +44,11 @@ const config = require('../config');
 async function createOrder({ buyerId, productId }) {
   // 1. Fetch product
   const productRes = await pool.query(
-    'SELECT id, seller_id, price FROM pdf_products WHERE id = $1 AND is_active = true',
+    `SELECT id, seller_id, price
+     FROM pdf_products
+     WHERE id = $1
+       AND is_active = true
+       AND review_status = 'approved'`,
     [productId]
   );
 

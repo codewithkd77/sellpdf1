@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS pdf_products (
     is_active       BOOLEAN         NOT NULL DEFAULT true,
     file_path       TEXT            NOT NULL,       -- Supabase storage path: "pdfs/<seller_id>/<uuid>.pdf"
     cover_path      TEXT,                           -- Optional cover image storage path
+    review_status   VARCHAR(30)     NOT NULL DEFAULT 'approved'
+                                        CHECK (review_status IN ('pending_review', 'approved', 'rejected')),
+    rejection_reason TEXT,
+    reviewed_by     VARCHAR(100),
+    reviewed_at     TIMESTAMPTZ,
     file_size       BIGINT,
     created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW()
@@ -53,6 +58,12 @@ ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS cover_path TEXT;
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS mrp NUMERIC(10, 2);
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS author_name VARCHAR(255);
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS review_status VARCHAR(30) NOT NULL DEFAULT 'approved';
+ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(100);
+ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+UPDATE pdf_products SET review_status = 'approved' WHERE review_status IS NULL;
+CREATE INDEX IF NOT EXISTS idx_pdf_products_review_status ON pdf_products(review_status);
 
 -- ─────────────────────────────────────────────
 -- 3. PURCHASES
@@ -92,3 +103,20 @@ CREATE TABLE IF NOT EXISTS earnings (
 
 CREATE INDEX IF NOT EXISTS idx_earnings_seller   ON earnings(seller_id);
 CREATE INDEX IF NOT EXISTS idx_earnings_purchase ON earnings(purchase_id);
+
+-- ============================================================
+-- 5. AUDIT LOGS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    actor_type  VARCHAR(50)     NOT NULL,
+    actor_id    VARCHAR(255),
+    action      VARCHAR(120)    NOT NULL,
+    target_type VARCHAR(80),
+    target_id   VARCHAR(255),
+    metadata    JSONB,
+    created_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
