@@ -22,7 +22,8 @@ router.get('/product/:id', async (req, res) => {
        FROM pdf_products p
        JOIN users u ON u.id = p.seller_id
        WHERE p.id = $1
-         AND p.is_active = true`,
+         AND p.is_active = true
+         AND p.review_status = 'approved'`,
       [id]
     );
 
