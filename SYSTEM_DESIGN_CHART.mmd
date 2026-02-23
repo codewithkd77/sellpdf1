@@ -1,0 +1,77 @@
+flowchart TD
+    U[Web / Mobile User] --> A[Express API Layer]
+    A --> AUTH[Auth Module]
+    A --> PDF[PDF Module]
+    A --> PAY[Payment Module]
+    A --> PUR[Purchase Module]
+    A --> USER[User Module]
+    A --> SHARE[Share / Deep Link Module]
+
+    AUTH --> PG[(PostgreSQL: users)]
+    USER --> PG
+
+    PDF --> PG2[(PostgreSQL: pdf_products)]
+    PDF --> SB[(Supabase Storage - Private Bucket)]
+
+    PAY --> RP[Razorpay]
+    RP -->|Webhook| PAY
+    PAY --> PG3[(PostgreSQL: purchases)]
+    PAY --> PG4[(PostgreSQL: earnings)]
+
+    PUR --> PG3
+    PUR --> PG4
+    PUR --> PG2
+
+    U -->|Buy PDF| PAY
+    U -->|Browse/Search| PDF
+    U -->|Profile| USER
+    U -->|Shared Link| SHARE
+
+    PDF -->|Signed URL after paid check| U
+
+    D[Seller Delete Request] --> PDF
+    PDF --> C{Paid purchases exist?}
+    C -->|Yes| SD[Soft Delete: is_active=false]
+    C -->|No| HD[Hard Delete: DB row + storage files]
+
+
+%% ------------------------------
+%% Sequence: Paid Purchase Flow
+%% ------------------------------
+sequenceDiagram
+    participant Client as Web/Mobile
+    participant API as Backend API
+    participant DB as PostgreSQL
+    participant Razorpay as Razorpay
+
+    Client->>API: POST /api/payment/create-order (product_id)
+    API->>DB: Validate product + ownership + existing purchase
+    alt Paid PDF
+        API->>Razorpay: Create order
+        API->>DB: Insert purchase status=pending
+        API-->>Client: order_id, amount, key
+        Razorpay-->>API: webhook payment.captured
+        API->>DB: Verify + mark purchase paid
+        API->>DB: Insert earnings
+    else Free PDF
+        API->>DB: Insert purchase status=paid
+        API->>DB: Insert zero earnings
+        API-->>Client: { free: true }
+    end
+
+
+%% ------------------------------
+%% Sequence: Secure PDF Access
+%% ------------------------------
+sequenceDiagram
+    participant Buyer as Buyer
+    participant API as Backend API
+    participant DB as PostgreSQL
+    participant SB as Supabase Storage
+
+    Buyer->>API: GET /api/pdf/:id/access (JWT)
+    API->>DB: Check purchase status = paid
+    API->>DB: Read file_path + allow_download
+    API->>SB: Create signed URL (short expiry)
+    API-->>Buyer: signed_url + allow_download + expires_in
+

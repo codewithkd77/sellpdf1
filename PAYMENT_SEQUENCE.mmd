@@ -1,0 +1,20 @@
+﻿sequenceDiagram
+    participant Client as Web/Mobile
+    participant API as Backend API
+    participant DB as PostgreSQL
+    participant Razorpay as Razorpay
+
+    Client->>API: POST /api/payment/create-order (product_id)
+    API->>DB: Validate product + ownership + existing purchase
+    alt Paid PDF
+        API->>Razorpay: Create order
+        API->>DB: Insert purchase status=pending
+        API-->>Client: order_id, amount, key
+        Razorpay-->>API: webhook payment.captured
+        API->>DB: Verify + mark purchase paid
+        API->>DB: Insert earnings
+    else Free PDF
+        API->>DB: Insert purchase status=paid
+        API->>DB: Insert zero earnings
+        API-->>Client: { free: true }
+    end

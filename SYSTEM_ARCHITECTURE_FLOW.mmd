@@ -1,0 +1,35 @@
+﻿flowchart TD
+    U[Web / Mobile User] --> A[Express API Layer]
+    A --> AUTH[Auth Module]
+    A --> PDF[PDF Module]
+    A --> PAY[Payment Module]
+    A --> PUR[Purchase Module]
+    A --> USER[User Module]
+    A --> SHARE[Share / Deep Link Module]
+
+    AUTH --> PG[(PostgreSQL: users)]
+    USER --> PG
+
+    PDF --> PG2[(PostgreSQL: pdf_products)]
+    PDF --> SB[(Supabase Storage - Private Bucket)]
+
+    PAY --> RP[Razorpay]
+    RP -->|Webhook| PAY
+    PAY --> PG3[(PostgreSQL: purchases)]
+    PAY --> PG4[(PostgreSQL: earnings)]
+
+    PUR --> PG3
+    PUR --> PG4
+    PUR --> PG2
+
+    U -->|Buy PDF| PAY
+    U -->|Browse/Search| PDF
+    U -->|Profile| USER
+    U -->|Shared Link| SHARE
+
+    PDF -->|Signed URL after paid check| U
+
+    D[Seller Delete Request] --> PDF
+    PDF --> C{Paid purchases exist?}
+    C -->|Yes| SD[Soft Delete: is_active=false]
+    C -->|No| HD[Hard Delete: DB row + storage files]

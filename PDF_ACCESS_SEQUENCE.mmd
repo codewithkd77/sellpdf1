@@ -1,0 +1,11 @@
+﻿sequenceDiagram
+    participant Buyer as Buyer
+    participant API as Backend API
+    participant DB as PostgreSQL
+    participant SB as Supabase Storage
+
+    Buyer->>API: GET /api/pdf/:id/access (JWT)
+    API->>DB: Check purchase status = paid
+    API->>DB: Read file_path + allow_download
+    API->>SB: Create signed URL (short expiry)
+    API-->>Buyer: signed_url + allow_download + expires_in
