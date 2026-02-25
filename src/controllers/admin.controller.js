@@ -105,6 +105,18 @@ async function auditLogs(req, res, next) {
   }
 }
 
+async function deleteProduct(req, res, next) {
+  try {
+    const result = await adminService.deleteProduct({
+      productId: req.params.id,
+      adminId: req.user.id,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   login,
   moderationQueue,
@@ -115,4 +127,5 @@ module.exports = {
   userDetails,
   orders,
   auditLogs,
+  deleteProduct,
 };

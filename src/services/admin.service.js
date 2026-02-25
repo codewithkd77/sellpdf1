@@ -318,6 +318,47 @@ async function getProductReviewUrl({ productId, adminId }) {
   };
 }
 
+/**
+ * Permanently delete a PDF product:
+ *  1. Remove PDF file (and cover image) from Supabase storage.
+ *  2. Delete DB record — purchases/earnings cascade automatically.
+ *  3. Log audit entry.
+ */
+async function deleteProduct({ productId, adminId }) {
+  // Fetch product to get storage paths
+  const res = await pool.query(
+    `SELECT id, title, file_path, cover_path, seller_id FROM pdf_products WHERE id = $1`,
+    [productId]
+  );
+  if (res.rows.length === 0) {
+    const err = new Error('Product not found');
+    err.status = 404;
+    throw err;
+  }
+  const product = res.rows[0];
+
+  // Remove files from Supabase storage
+  const pathsToRemove = [product.file_path].filter(Boolean);
+  if (product.cover_path) pathsToRemove.push(product.cover_path);
+  if (pathsToRemove.length > 0) {
+    await supabase.storage.from(config.supabase.bucket).remove(pathsToRemove);
+  }
+
+  // Delete DB record (purchases, earnings cascade via ON DELETE CASCADE)
+  await pool.query('DELETE FROM pdf_products WHERE id = $1', [productId]);
+
+  await logAudit({
+    actorType: 'admin',
+    actorId: adminId,
+    action: 'admin.delete_product',
+    targetType: 'product',
+    targetId: productId,
+    metadata: { title: product.title, seller_id: product.seller_id },
+  }).catch(() => {});
+
+  return { deleted: true, product_id: productId, title: product.title };
+}
+
 module.exports = {
   login,
   listModerationQueue,
@@ -328,4 +369,5 @@ module.exports = {
   listOrders,
   listAuditLogs,
   getProductReviewUrl,
+  deleteProduct,
 };

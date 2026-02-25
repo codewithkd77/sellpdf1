@@ -12,6 +12,7 @@ router.get('/moderation', controller.moderationQueue);
 router.get('/moderation/:id/review-url', controller.reviewUrl);
 router.post('/moderation/:id/approve', controller.approve);
 router.post('/moderation/:id/reject', controller.reject);
+router.delete('/products/:id', controller.deleteProduct);
 
 router.get('/users', controller.users);
 router.get('/users/:id', controller.userDetails);
