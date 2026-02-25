@@ -37,4 +37,25 @@ async function webhook(req, res, next) {
   }
 }
 
-module.exports = { createOrder, webhook };
+/**
+ * POST /api/payment/verify
+ * Called by the mobile app after Razorpay checkout succeeds.
+ */
+async function verifyPayment(req, res, next) {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ error: 'Missing payment fields' });
+    }
+    const result = await paymentService.verifyPayment({
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { createOrder, webhook, verifyPayment };

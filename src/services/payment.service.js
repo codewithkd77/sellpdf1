@@ -208,4 +208,62 @@ async function handleWebhook(rawBody, signature) {
   return { status: 'success', purchase_id: purchase.id };
 }
 
-module.exports = { createOrder, handleWebhook };
+/**
+ * Verify a payment from the mobile client.
+ * Called after Razorpay checkout succeeds on the device.
+ *
+ * Signature = HMAC-SHA256(razorpay_order_id + "|" + razorpay_payment_id, KEY_SECRET)
+ */
+async function verifyPayment({ razorpay_order_id, razorpay_payment_id, razorpay_signature }) {
+  // ── Step 1: Verify signature ──────────────────────────────
+  const expectedSig = crypto
+    .createHmac('sha256', config.razorpay.keySecret)
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+    .digest('hex');
+
+  if (expectedSig !== razorpay_signature) {
+    const err = new Error('Invalid payment signature');
+    err.status = 400;
+    throw err;
+  }
+
+  // ── Step 2: Update purchase → paid ────────────────────────
+  const purchaseRes = await pool.query(
+    `UPDATE purchases
+     SET    status = 'paid',
+            razorpay_payment_id = $1,
+            updated_at = NOW()
+     WHERE  razorpay_order_id = $2 AND status = 'pending'
+     RETURNING id, product_id, amount`,
+    [razorpay_payment_id, razorpay_order_id]
+  );
+
+  if (purchaseRes.rows.length === 0) {
+    // Already processed — idempotent
+    return { status: 'already_processed' };
+  }
+
+  const purchase = purchaseRes.rows[0];
+
+  // ── Step 3: Compute commission & store in earnings ─────────
+  const totalAmount = parseFloat(purchase.amount);
+  const platformFee = +(totalAmount * config.platform.commissionRate).toFixed(2);
+  const sellerAmount = +(totalAmount - platformFee).toFixed(2);
+
+  const productRes = await pool.query(
+    'SELECT seller_id FROM pdf_products WHERE id = $1',
+    [purchase.product_id]
+  );
+  const sellerId = productRes.rows[0].seller_id;
+
+  await pool.query(
+    `INSERT INTO earnings (purchase_id, seller_id, total_amount, platform_fee, seller_amount)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT DO NOTHING`,
+    [purchase.id, sellerId, totalAmount, platformFee, sellerAmount]
+  );
+
+  return { status: 'success', purchase_id: purchase.id };
+}
+
+module.exports = { createOrder, handleWebhook, verifyPayment };

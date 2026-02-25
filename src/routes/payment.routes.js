@@ -14,6 +14,9 @@ router.post(
   controller.createOrder
 );
 
+// Client-side payment verification (mobile app calls this after checkout)
+router.post('/verify', authenticate, controller.verifyPayment);
+
 // Razorpay webhook — no auth (verified via HMAC signature)
 router.post('/webhook', controller.webhook);
 
