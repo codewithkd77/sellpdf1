@@ -116,7 +116,7 @@ async function createOrder({ buyerId, productId }) {
   const order = await razorpay.orders.create({
     amount: amountPaise,
     currency: 'INR',
-    receipt: `rcpt_${productId}_${Date.now()}`,
+    receipt: `rcpt_${String(productId).slice(0, 8)}_${Date.now().toString().slice(-10)}`,
     notes: {
       product_id: productId,
       buyer_id: buyerId,
