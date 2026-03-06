@@ -140,7 +140,7 @@ async function listUsers({ page = 1, limit = 20, q = '' }) {
   values.push(offset);
 
   const result = await pool.query(
-    `SELECT u.id, u.name, u.email, u.created_at,
+    `SELECT u.id, u.name, u.email, u.created_at, u.is_banned, u.ban_reason, u.banned_at,
             COALESCE(up.uploaded_count, 0) AS uploaded_count,
             COALESCE(so.sold_count, 0) AS sold_count,
             COALESCE(bu.bought_count, 0) AS bought_count
@@ -174,7 +174,7 @@ async function listUsers({ page = 1, limit = 20, q = '' }) {
 
 async function getUserDetails(userId) {
   const userRes = await pool.query(
-    `SELECT u.id, u.name, u.email, u.created_at,
+    `SELECT u.id, u.name, u.email, u.created_at, u.is_banned, u.ban_reason, u.banned_at, u.banned_by,
             COALESCE(up.uploaded_count, 0) AS uploaded_count,
             COALESCE(so.sold_count, 0) AS sold_count,
             COALESCE(bu.bought_count, 0) AS bought_count
@@ -359,6 +359,158 @@ async function deleteProduct({ productId, adminId }) {
   return { deleted: true, product_id: productId, title: product.title };
 }
 
+async function listReports({ status = 'open', page = 1, limit = 50 }) {
+  const offset = (page - 1) * limit;
+  const values = [];
+  let whereClause = '';
+
+  if (status && status !== 'all') {
+    values.push(status);
+    whereClause = `WHERE r.status = $${values.length}`;
+  }
+
+  values.push(limit);
+  values.push(offset);
+
+  const result = await pool.query(
+    `SELECT
+       r.id, r.product_id, r.product_title, r.reason_code, r.custom_reason, r.status,
+       r.admin_note, r.resolved_by, r.resolved_at, r.created_at,
+       reporter.id AS reporter_id, reporter.email AS reporter_email,
+       seller.id AS seller_id, seller.email AS seller_email, seller.is_banned AS seller_is_banned
+     FROM pdf_reports r
+     LEFT JOIN users reporter ON reporter.id = r.reporter_id
+     LEFT JOIN users seller ON seller.id = r.seller_id
+     ${whereClause}
+     ORDER BY r.created_at DESC
+     LIMIT $${values.length - 1} OFFSET $${values.length}`,
+    values
+  );
+
+  return result.rows;
+}
+
+async function updateReportStatus({
+  reportId,
+  status,
+  adminId,
+  adminNote = '',
+}) {
+  const allowedStatuses = ['open', 'under_review', 'resolved', 'dismissed'];
+  if (!allowedStatuses.includes(status)) {
+    const err = new Error('Invalid report status');
+    err.status = 400;
+    throw err;
+  }
+
+  const trimmedNote = String(adminNote || '').trim();
+  const shouldResolve = status === 'resolved' || status === 'dismissed';
+
+  const result = await pool.query(
+    `UPDATE pdf_reports
+     SET status = $2,
+         admin_note = CASE WHEN $3 = '' THEN admin_note ELSE $3 END,
+         resolved_by = CASE WHEN $4 THEN $5 ELSE NULL END,
+         resolved_at = CASE WHEN $4 THEN NOW() ELSE NULL END,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, product_id, product_title, reason_code, custom_reason, status, admin_note, resolved_by, resolved_at, created_at`,
+    [reportId, status, trimmedNote, shouldResolve, adminId]
+  );
+
+  if (result.rows.length === 0) {
+    const err = new Error('Report not found');
+    err.status = 404;
+    throw err;
+  }
+
+  await logAudit({
+    actorType: 'admin',
+    actorId: adminId,
+    action: 'report.status_update',
+    targetType: 'pdf_report',
+    targetId: reportId,
+    metadata: { status, admin_note: trimmedNote || null },
+  }).catch(() => {});
+
+  return result.rows[0];
+}
+
+async function banUser({ userId, reason, adminId }) {
+  const trimmedReason = String(reason || '').trim();
+  if (trimmedReason.length < 3) {
+    const err = new Error('Ban reason is required');
+    err.status = 400;
+    throw err;
+  }
+
+  const result = await pool.query(
+    `UPDATE users
+     SET is_banned = true,
+         ban_reason = $2,
+         banned_at = NOW(),
+         banned_by = $3,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, name, email, is_banned, ban_reason, banned_at, banned_by`,
+    [userId, trimmedReason, adminId]
+  );
+
+  if (result.rows.length === 0) {
+    const err = new Error('User not found');
+    err.status = 404;
+    throw err;
+  }
+
+  await pool.query(
+    `UPDATE pdf_products
+     SET is_active = false, updated_at = NOW()
+     WHERE seller_id = $1`,
+    [userId]
+  );
+
+  await logAudit({
+    actorType: 'admin',
+    actorId: adminId,
+    action: 'admin.ban_user',
+    targetType: 'user',
+    targetId: userId,
+    metadata: { reason: trimmedReason },
+  }).catch(() => {});
+
+  return result.rows[0];
+}
+
+async function unbanUser({ userId, adminId }) {
+  const result = await pool.query(
+    `UPDATE users
+     SET is_banned = false,
+         ban_reason = NULL,
+         banned_at = NULL,
+         banned_by = NULL,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, name, email, is_banned`,
+    [userId]
+  );
+
+  if (result.rows.length === 0) {
+    const err = new Error('User not found');
+    err.status = 404;
+    throw err;
+  }
+
+  await logAudit({
+    actorType: 'admin',
+    actorId: adminId,
+    action: 'admin.unban_user',
+    targetType: 'user',
+    targetId: userId,
+  }).catch(() => {});
+
+  return result.rows[0];
+}
+
 module.exports = {
   login,
   listModerationQueue,
@@ -370,4 +522,8 @@ module.exports = {
   listAuditLogs,
   getProductReviewUrl,
   deleteProduct,
+  listReports,
+  updateReportStatus,
+  banUser,
+  unbanUser,
 };

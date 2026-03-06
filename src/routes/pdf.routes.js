@@ -52,6 +52,13 @@ router.get('/code/:code', controller.getByCode);
 // Public: single product details
 router.get('/:id', controller.getById);
 
+// Report a product (copyright/safety)
+router.post(
+  '/:id/report',
+  authenticate,
+  controller.reportProduct
+);
+
 // Get signed URL to view/download purchased PDF
 router.get(
   '/:id/access',

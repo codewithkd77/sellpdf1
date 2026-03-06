@@ -117,6 +117,57 @@ async function deleteProduct(req, res, next) {
   }
 }
 
+async function reports(req, res, next) {
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const status = req.query.status || 'open';
+    const rows = await adminService.listReports({ page, limit, status });
+    res.json(rows);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function updateReport(req, res, next) {
+  try {
+    const row = await adminService.updateReportStatus({
+      reportId: req.params.id,
+      status: req.body?.status,
+      adminId: req.user.id,
+      adminNote: req.body?.admin_note,
+    });
+    res.json(row);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function banUser(req, res, next) {
+  try {
+    const row = await adminService.banUser({
+      userId: req.params.id,
+      reason: req.body?.reason,
+      adminId: req.user.id,
+    });
+    res.json(row);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function unbanUser(req, res, next) {
+  try {
+    const row = await adminService.unbanUser({
+      userId: req.params.id,
+      adminId: req.user.id,
+    });
+    res.json(row);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   login,
   moderationQueue,
@@ -128,4 +179,8 @@ module.exports = {
   orders,
   auditLogs,
   deleteProduct,
+  reports,
+  updateReport,
+  banUser,
+  unbanUser,
 };

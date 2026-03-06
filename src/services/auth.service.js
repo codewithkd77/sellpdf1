@@ -58,7 +58,7 @@ async function register({ name, email, password }) {
 async function login({ email, password }) {
   const normalizedEmail = String(email).trim().toLowerCase();
   const result = await pool.query(
-    'SELECT id, name, email, password_hash FROM users WHERE email = $1',
+    'SELECT id, name, email, password_hash, is_banned, ban_reason FROM users WHERE email = $1',
     [normalizedEmail]
   );
 
@@ -69,6 +69,11 @@ async function login({ email, password }) {
   }
 
   const user = result.rows[0];
+  if (user.is_banned) {
+    const err = new Error(user.ban_reason || 'Your account is suspended');
+    err.status = 403;
+    throw err;
+  }
   const valid = await bcrypt.compare(password, user.password_hash);
 
   if (!valid) {
@@ -79,6 +84,8 @@ async function login({ email, password }) {
 
   // Strip password_hash before returning
   delete user.password_hash;
+  delete user.is_banned;
+  delete user.ban_reason;
   user.role = 'user';
   const token = _generateToken(user);
 
@@ -113,7 +120,7 @@ async function googleLogin({ idToken }) {
   const googleName = String(payload.name || normalizedEmail.split('@')[0] || 'User').trim();
 
   let result = await pool.query(
-    'SELECT id, name, email, created_at FROM users WHERE email = $1',
+    'SELECT id, name, email, created_at, is_banned, ban_reason FROM users WHERE email = $1',
     [normalizedEmail]
   );
 
@@ -130,7 +137,15 @@ async function googleLogin({ idToken }) {
     );
   }
 
+  if (result.rows[0].is_banned) {
+    const err = new Error(result.rows[0].ban_reason || 'Your account is suspended');
+    err.status = 403;
+    throw err;
+  }
+
   const user = { ...result.rows[0], role: 'user' };
+  delete user.is_banned;
+  delete user.ban_reason;
   const token = _generateToken(user);
   return { user, token };
 }

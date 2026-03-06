@@ -31,6 +31,15 @@ const IMAGE_MIME_EXTENSION = {
   'image/png': 'png',
   'image/webp': 'webp',
 };
+const REPORT_REASON_CODES = [
+  'copyright_infringement',
+  'unauthorized_resale',
+  'plagiarism_or_stolen_notes',
+  'malware_or_harmful_file',
+  'adult_or_illegal_content',
+  'spam_or_misleading',
+  'other',
+];
 
 /**
  * Generate a unique 6-character alphanumeric code (uppercase).
@@ -199,6 +208,7 @@ async function getProductById(productId) {
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
      WHERE p.id = $1
+       AND u.is_banned = false
        AND p.is_active = true
        AND p.review_status = 'approved'`,
     [productId]
@@ -222,6 +232,7 @@ async function getProductByCode(shortCode) {
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
      WHERE UPPER(p.short_code) = UPPER($1)
+       AND u.is_banned = false
        AND p.is_active = true
        AND p.review_status = 'approved'`,
     [shortCode]
@@ -248,6 +259,7 @@ async function listProducts({ page = 1, limit = 20 }) {
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
      WHERE p.is_active = true
+       AND u.is_banned = false
        AND p.review_status = 'approved'
      ORDER BY p.created_at DESC
      LIMIT $1 OFFSET $2`,
@@ -268,6 +280,7 @@ async function searchProducts(query) {
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
      WHERE p.is_active = true
+       AND u.is_banned = false
        AND p.review_status = 'approved'
        AND (
            UPPER(p.title) LIKE UPPER($1)
@@ -550,6 +563,77 @@ async function updateProductDetails(
   return attachCoverUrl(result.rows[0]);
 }
 
+async function reportProduct({
+  productId,
+  reporterId,
+  reasonCode,
+  customReason = '',
+}) {
+  if (!REPORT_REASON_CODES.includes(reasonCode)) {
+    const err = new Error('Invalid report reason');
+    err.status = 400;
+    throw err;
+  }
+
+  const trimmedCustomReason = String(customReason || '').trim();
+  if (reasonCode === 'other' && trimmedCustomReason.length < 10) {
+    const err = new Error('Please provide a detailed custom reason (at least 10 characters)');
+    err.status = 400;
+    throw err;
+  }
+
+  const productRes = await pool.query(
+    `SELECT p.id, p.title, p.seller_id
+     FROM pdf_products p
+     JOIN users u ON u.id = p.seller_id
+     WHERE p.id = $1
+       AND p.is_active = true
+       AND p.review_status = 'approved'
+       AND u.is_banned = false`,
+    [productId]
+  );
+
+  if (productRes.rows.length === 0) {
+    const err = new Error('Product not found');
+    err.status = 404;
+    throw err;
+  }
+
+  const product = productRes.rows[0];
+
+  const duplicateRes = await pool.query(
+    `SELECT id
+     FROM pdf_reports
+     WHERE product_id = $1
+       AND reporter_id = $2
+       AND status IN ('open', 'under_review')`,
+    [productId, reporterId]
+  );
+  if (duplicateRes.rows.length > 0) {
+    const err = new Error('You already submitted a report for this product');
+    err.status = 409;
+    throw err;
+  }
+
+  const reportRes = await pool.query(
+    `INSERT INTO pdf_reports (
+       product_id, product_title, reporter_id, seller_id, reason_code, custom_reason
+     )
+     VALUES ($1, $2, $3, $4, $5, $6)
+     RETURNING id, product_id, product_title, reporter_id, seller_id, reason_code, custom_reason, status, created_at`,
+    [
+      productId,
+      product.title,
+      reporterId,
+      product.seller_id,
+      reasonCode,
+      trimmedCustomReason || null,
+    ]
+  );
+
+  return reportRes.rows[0];
+}
+
 module.exports = {
   createProduct,
   getProductById,
@@ -561,4 +645,6 @@ module.exports = {
   deleteProduct,
   updatePrice,
   updateProductDetails,
+  reportProduct,
+  REPORT_REASON_CODES,
 };

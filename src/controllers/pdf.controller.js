@@ -152,6 +152,20 @@ async function updateProduct(req, res, next) {
   }
 }
 
+async function reportProduct(req, res, next) {
+  try {
+    const report = await pdfService.reportProduct({
+      productId: req.params.id,
+      reporterId: req.user.id,
+      reasonCode: req.body?.reason_code,
+      customReason: req.body?.custom_reason,
+    });
+    res.status(201).json(report);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   create,
   getById,
@@ -163,4 +177,5 @@ module.exports = {
   deleteProduct,
   updatePrice,
   updateProduct,
+  reportProduct,
 };

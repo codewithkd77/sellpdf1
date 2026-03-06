@@ -11,8 +11,9 @@
  */
 const jwt = require('jsonwebtoken');
 const config = require('../config');
+const pool = require('../database/pool');
 
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Authentication required' });
@@ -21,6 +22,21 @@ function authenticate(req, res, next) {
   const token = header.split(' ')[1];
   try {
     const decoded = jwt.verify(token, config.jwt.secret);
+
+    // Admin tokens are not backed by the users table.
+    if (decoded.role !== 'admin') {
+      const userRes = await pool.query(
+        'SELECT id, is_banned FROM users WHERE id = $1',
+        [decoded.id]
+      );
+      if (userRes.rows.length === 0) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      if (userRes.rows[0].is_banned) {
+        return res.status(403).json({ error: 'Your account is suspended' });
+      }
+    }
+
     req.user = decoded; // { id, email, iat, exp }
     next();
   } catch (err) {
