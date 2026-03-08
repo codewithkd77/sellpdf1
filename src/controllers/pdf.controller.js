@@ -14,6 +14,7 @@ async function create(req, res, next) {
       title: req.body.title,
       authorName: req.body.author_name,
       description: req.body.description || null,
+      tags: req.body.tags,
       mrp: req.body.mrp != null && req.body.mrp !== '' ? parseFloat(req.body.mrp) : null,
       price: parseFloat(req.body.price),
       allowDownload: req.body.allow_download === 'true' || req.body.allow_download === true,
@@ -83,7 +84,8 @@ async function myProducts(req, res, next) {
  */
 async function access(req, res, next) {
   try {
-    const data = await pdfService.getSignedUrl(req.params.id, req.user.id);
+    const clientPlatform = String(req.headers['x-client-platform'] || 'web').toLowerCase();
+    const data = await pdfService.getSignedUrl(req.params.id, req.user.id, clientPlatform);
     res.json(data);
   } catch (err) {
     next(err);
@@ -126,6 +128,7 @@ async function updateProduct(req, res, next) {
     if (req.body.title !== undefined) payload.title = req.body.title;
     if (req.body.author_name !== undefined) payload.authorName = req.body.author_name;
     if (req.body.description !== undefined) payload.description = req.body.description;
+    if (req.body.tags !== undefined) payload.tags = req.body.tags;
     if (req.body.price !== undefined && req.body.price !== '') {
       const price = parseFloat(req.body.price);
       if (isNaN(price)) return res.status(400).json({ error: 'Invalid price' });

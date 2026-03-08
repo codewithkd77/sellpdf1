@@ -4,6 +4,10 @@ const createPdfSchema = Joi.object({
   title: Joi.string().min(3).max(255).required(),
   author_name: Joi.string().trim().min(2).max(255).required(),
   description: Joi.string().max(2000).allow('', null),
+  tags: Joi.alternatives().try(
+    Joi.array().items(Joi.string().trim().min(1).max(30)).max(12),
+    Joi.string().allow('', null)
+  ),
   mrp: Joi.number().min(0).precision(2).allow(null),
   price: Joi.number().positive().precision(2).required(),
   allow_download: Joi.boolean().default(false),

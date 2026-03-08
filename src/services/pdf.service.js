@@ -40,6 +40,8 @@ const REPORT_REASON_CODES = [
   'spam_or_misleading',
   'other',
 ];
+const MAX_TAGS = 12;
+const MAX_TAG_LENGTH = 30;
 
 /**
  * Generate a unique 6-character alphanumeric code (uppercase).
@@ -63,6 +65,7 @@ async function createProduct({
   title,
   authorName,
   description,
+  tags = [],
   mrp = null,
   price,
   allowDownload,
@@ -83,6 +86,7 @@ async function createProduct({
   }
 
   const normalizedMrp = mrp == null || Number.isNaN(mrp) ? null : mrp;
+  const normalizedTags = normalizeTags(tags);
   if (normalizedMrp != null && normalizedMrp < price) {
     const err = new Error('MRP must be greater than or equal to discounted price');
     err.status = 400;
@@ -154,8 +158,8 @@ async function createProduct({
 
   // 4. Insert product record
   const result = await pool.query(
-    `INSERT INTO pdf_products (seller_id, short_code, title, author_name, description, mrp, price, allow_download, file_path, cover_path, file_size, review_status, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending_review', false)
+    `INSERT INTO pdf_products (seller_id, short_code, title, author_name, description, tags, mrp, price, allow_download, file_path, cover_path, file_size, review_status, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9, $10, $11, $12, 'pending_review', false)
      RETURNING *`,
     [
       sellerId,
@@ -163,6 +167,7 @@ async function createProduct({
       title,
       normalizedAuthorName,
       description,
+      normalizedTags,
       normalizedMrp,
       price,
       allowDownload,
@@ -173,6 +178,49 @@ async function createProduct({
   );
 
   return attachCoverUrl(result.rows[0]);
+}
+
+function normalizeTags(tagsInput) {
+  let parsed = [];
+  if (Array.isArray(tagsInput)) {
+    parsed = tagsInput;
+  } else if (typeof tagsInput === 'string') {
+    const raw = tagsInput.trim();
+    if (!raw) return [];
+
+    try {
+      const maybeJson = JSON.parse(raw);
+      if (Array.isArray(maybeJson)) {
+        parsed = maybeJson;
+      } else {
+        parsed = raw.split(',');
+      }
+    } catch {
+      parsed = raw.split(',');
+    }
+  } else if (tagsInput == null) {
+    return [];
+  } else {
+    parsed = [String(tagsInput)];
+  }
+
+  const unique = new Set();
+  for (const item of parsed) {
+    const tag = String(item || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!tag) continue;
+    if (tag.length > MAX_TAG_LENGTH) {
+      const err = new Error(`Each tag must be at most ${MAX_TAG_LENGTH} characters`);
+      err.status = 400;
+      throw err;
+    }
+    unique.add(tag);
+    if (unique.size > MAX_TAGS) {
+      const err = new Error(`You can add up to ${MAX_TAGS} tags`);
+      err.status = 400;
+      throw err;
+    }
+  }
+  return [...unique];
 }
 
 async function createCoverSignedUrl(coverPath) {
@@ -254,7 +302,7 @@ async function listProducts({ page = 1, limit = 20 }) {
   const offset = (page - 1) * limit;
   const result = await pool.query(
     `SELECT p.id, p.short_code, p.title, p.author_name, p.description, p.price, p.allow_download, p.cover_path,
-            p.mrp,
+            p.mrp, p.tags,
             p.created_at, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
@@ -275,7 +323,7 @@ async function searchProducts(query) {
   const searchTerm = `%${query}%`;
   const result = await pool.query(
     `SELECT p.id, p.short_code, p.title, p.author_name, p.description, p.price, p.allow_download, p.cover_path,
-            p.mrp,
+            p.mrp, p.tags,
             p.created_at, u.name AS seller_name
      FROM pdf_products p
      JOIN users u ON u.id = p.seller_id
@@ -286,6 +334,11 @@ async function searchProducts(query) {
            UPPER(p.title) LIKE UPPER($1)
         OR UPPER(p.description) LIKE UPPER($1)
         OR UPPER(p.short_code) LIKE UPPER($1)
+        OR EXISTS (
+            SELECT 1
+            FROM unnest(COALESCE(p.tags, '{}')) AS tag
+            WHERE UPPER(tag) LIKE UPPER($1)
+        )
        )
      ORDER BY p.created_at DESC`,
     [searchTerm]
@@ -312,7 +365,7 @@ async function listSellerProducts(sellerId) {
  * IMPORTANT: This must only be called after verifying the buyer
  * has a paid purchase for this product.
  */
-async function getSignedUrl(productId, buyerId) {
+async function getSignedUrl(productId, buyerId, clientPlatform = 'web') {
   // 1. Verify purchase exists and is paid
   const purchase = await pool.query(
     `SELECT id FROM purchases
@@ -339,6 +392,13 @@ async function getSignedUrl(productId, buyerId) {
   }
 
   const { file_path, allow_download } = product.rows[0];
+
+  // View-only PDFs are mobile-app only.
+  if (!allow_download && clientPlatform !== 'mobile') {
+    const err = new Error('This PDF is view-only and can only be opened in the mobile app');
+    err.status = 403;
+    throw err;
+  }
 
   // 3. Generate signed URL (5-minute expiry)
   const { data, error } = await supabase.storage
@@ -457,10 +517,10 @@ async function updatePrice(productId, sellerId, newPrice) {
 async function updateProductDetails(
   productId,
   sellerId,
-  { title, authorName, description, mrp, price, allowDownload, coverFile }
+  { title, authorName, description, tags, mrp, price, allowDownload, coverFile }
 ) {
   const existingRes = await pool.query(
-    `SELECT id, title, author_name, description, mrp, price, allow_download, cover_path
+    `SELECT id, title, author_name, description, tags, mrp, price, allow_download, cover_path
      FROM pdf_products
      WHERE id = $1 AND seller_id = $2`,
     [productId, sellerId]
@@ -477,6 +537,7 @@ async function updateProductDetails(
   const nextAuthorName =
     authorName !== undefined ? String(authorName).trim() : existing.author_name;
   const nextDescription = description !== undefined ? (description || null) : existing.description;
+  const nextTags = tags !== undefined ? normalizeTags(tags) : (existing.tags || []);
   const nextPrice = price !== undefined ? price : parseFloat(existing.price);
   const nextMrp = mrp !== undefined ? mrp : (existing.mrp != null ? parseFloat(existing.mrp) : null);
   const nextAllowDownload =
@@ -532,22 +593,24 @@ async function updateProductDetails(
      SET title = $1,
          author_name = $2,
          description = $3,
-         mrp = $4,
-         price = $5,
-         allow_download = $6,
-         cover_path = $7,
+         tags = $4::text[],
+         mrp = $5,
+         price = $6,
+         allow_download = $7,
+         cover_path = $8,
          review_status = 'pending_review',
          rejection_reason = NULL,
          reviewed_by = NULL,
          reviewed_at = NULL,
          is_active = false,
          updated_at = NOW()
-     WHERE id = $8
+     WHERE id = $9
      RETURNING *`,
     [
       nextTitle,
       nextAuthorName,
       nextDescription,
+      nextTags,
       nextMrp,
       nextPrice,
       nextAllowDownload,

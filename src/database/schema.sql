@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS pdf_products (
     title           VARCHAR(255)    NOT NULL,
     author_name     VARCHAR(255)    NOT NULL,
     description     TEXT,
+    tags            TEXT[]          NOT NULL DEFAULT '{}',
     mrp             NUMERIC(10, 2)  CHECK (mrp IS NULL OR mrp >= 0),
     price           NUMERIC(10, 2)  NOT NULL CHECK (price >= 0),
     allow_download  BOOLEAN         NOT NULL DEFAULT false,
@@ -65,6 +66,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pdf_products_short_code ON pdf_products(sh
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS cover_path TEXT;
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS mrp NUMERIC(10, 2);
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS author_name VARCHAR(255);
+ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS review_status VARCHAR(30) NOT NULL DEFAULT 'approved';
 ALTER TABLE pdf_products ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
